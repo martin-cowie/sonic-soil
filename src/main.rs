@@ -40,34 +40,22 @@ async fn do_join(mut args: Args) -> Result<(), sonor::Error> {
     }
 
     let speakers = get_speakers().await?;
-    
-    let group_master_name = args.next().unwrap();
-    let group_master_zone = speakers.get(&group_master_name).unwrap_or_else(|| {
-        eprintln!("Unknown zone: {}", group_master_name);
-        std::process::exit(1);
-    });
-    let group_master = group_master_zone.first().unwrap();
 
-    // join the master to all the others
+    let group_master_name = args.next().unwrap();
+
+    // join each member to the master by room name
     for arg in args {
         let spkr = &speakers.get(&arg).unwrap_or_else(|| {
             eprintln!("Unknown speaker: {}", arg);
             std::process::exit(1);
         })[0];
-        join(group_master, spkr).await?;
 
-        println!("Joined {arg} to {group_master_name}");
+        match spkr.join(&group_master_name).await {
+            Ok(true) => println!("Joined {arg} to {group_master_name}"),
+            Ok(false) => eprintln!("Could not find zone '{group_master_name}' on the network"),
+            Err(e) => eprintln!("Failed to join {arg} to {group_master_name}: {e:#?}"),
+        }
     }
-
-    Ok(())
-}
-
-async fn join(master: &Speaker, member: &Speaker) -> Result<(), sonor::Error> {
-    let uri = format!("x-rincon:{}", master.uuid().await?);
-
-    member.set_transport_uri(&uri, "").await?;
-
-    // eprintln!("{} <- {}", master.name().await?, member.name().await?);
 
     Ok(())
 }
@@ -78,7 +66,11 @@ async fn do_list() -> Result<(), sonor::Error> {
             speakers.iter().map(|s| s.uuid())
         ).await?;
 
-        println!("{}: {:?}", zone, uids);
+        let ips: Vec<_> = speakers.iter()
+            .map(|s| s.device().url().host().unwrap_or("unknown").to_string())
+            .collect();
+
+        println!("{}: UIDs={:?} IPs={:?}", zone, uids, ips);
     }
 
     Ok(())
